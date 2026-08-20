@@ -1,66 +1,18 @@
-import { useEffect, useState } from "react";
 import { collection, doc, getDocs, query, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase";
+import { useEffect, useState } from "react";
+
+const MAX_LIMIT = 1000000;
+function makeToken() { const bytes = crypto.getRandomValues(new Uint8Array(18)); return Array.from(bytes, b => b.toString(16).padStart(2, "0")).join(""); }
 
 export default function AccessRequestsAdmin() {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-
-  async function load() {
-    setLoading(true); setError("");
-    try {
-      const snap = await getDocs(query(collection(db, "accessRequests")));
-      setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.requestedAt?.seconds || 0) - (a.requestedAt?.seconds || 0)));
-    } catch (err) { console.error(err); setError("Could not load access requests."); }
-    finally { setLoading(false); }
-  }
-  useEffect(() => { load(); }, []);
-
-  async function updateRequest(item, status) {
-    setError(""); setMessage("");
-    try {
-      await updateDoc(doc(db, "accessRequests", item.id), { status, reviewedAt: new Date() });
-      if (status === "Granted") {
-        const value = Math.max(1001, Number(item.adminLimit || item.requestedLimit || 2000));
-        await setDoc(doc(db, "users", item.uid), { uid: item.uid, email: item.email, maxChars: value, accessRevoked: false, limitUpdatedAt: new Date() }, { merge: true });
-      }
-      if (status === "Denied") await setDoc(doc(db, "users", item.uid), { accessRevoked: true, maxChars: 1000, limitUpdatedAt: new Date() }, { merge: true });
-      setMessage(`${item.email}: ${status}.`); await load();
-    } catch (err) { console.error(err); setError("Could not update this request."); }
-  }
-
-  async function setLimit(item) {
-    const raw = window.prompt(`Character limit for ${item.email}`, String(item.adminLimit || item.requestedLimit || 2000));
-    if (raw === null) return;
-    const value = Number(raw);
-    if (!Number.isInteger(value) || value < 1001 || value > 1000000) return setError("Enter a whole number between 1,001 and 1,000,000.");
-    setError(""); setMessage("");
-    try {
-      await setDoc(doc(db, "users", item.uid), { uid: item.uid, email: item.email, maxChars: value, accessRevoked: false, limitUpdatedAt: new Date() }, { merge: true });
-      await updateDoc(doc(db, "accessRequests", item.id), { adminLimit: value, status: "Granted", reviewedAt: new Date() });
-      setMessage(`Limit set to ${value.toLocaleString()} for ${item.email}.`); await load();
-    } catch (err) { console.error(err); setError("Could not set the character limit."); }
-  }
-
-  async function revoke(item) {
-    if (!window.confirm(`Revoke extended access for ${item.email}? Their limit will return to 1,000.`)) return;
-    setError(""); setMessage("");
-    try {
-      await setDoc(doc(db, "users", item.uid), { uid: item.uid, email: item.email, maxChars: 1000, accessRevoked: true, limitUpdatedAt: new Date() }, { merge: true });
-      await updateDoc(doc(db, "accessRequests", item.id), { status: "Denied", reviewedAt: new Date() });
-      setMessage(`Extended access revoked for ${item.email}.`); await load();
-    } catch (err) { console.error(err); setError("Could not revoke access."); }
-  }
-
-  return <section className="admin-section access-requests-section">
-    <div className="admin-section-heading"><div><h2>Extended limit requests</h2><p>Review requests and manage approved users.</p></div><button className="secondary-button admin-refresh" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button></div>
-    {error && <div className="admin-error">{error}</div>}{message && <div className="admin-success">{message}</div>}
-    {items.length === 0 ? <p className="admin-muted">No requests yet.</p> : <div className="request-list">{items.map((item) => <article className="request-card" key={item.id}>
-      <div className="request-card-top"><div><strong>{item.name}</strong><span>{item.email}</span></div><span className={`request-status status-${String(item.status || "Pending").toLowerCase()}`}>{item.status || "Pending"}</span></div>
-      <p>{item.purpose}</p><div className="request-meta"><span>User: {item.uid}</span><span>Limit: {(item.adminLimit || item.requestedLimit || 1000).toLocaleString()}</span></div>
-      <div className="request-actions"><button className="secondary-button" onClick={() => updateRequest(item, "Pending")}>Pending</button><button className="secondary-button" onClick={() => updateRequest(item, "Denied")}>Denied</button><button className="secondary-button" onClick={() => updateRequest(item, "Granted")}>Grant</button><button className="primary-button" onClick={() => setLimit(item)}>Edit limit</button>{item.status === "Granted" && <button className="secondary-button" onClick={() => revoke(item)}>Revoke access</button>}</div>
-    </article>)}</div>}
-  </section>;
+  const [items, setItems] = useState([]), [users, setUsers] = useState([]), [loading, setLoading] = useState(false), [message, setMessage] = useState(""), [error, setError] = useState("");
+  async function load() { setLoading(true); setError(""); try { const [r,u] = await Promise.all([getDocs(query(collection(db,"accessRequests"))), getDocs(query(collection(db,"users")))]); setItems(r.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(b.requestedAt?.seconds||0)-(a.requestedAt?.seconds||0))); setUsers(u.docs.map(d=>({id:d.id,...d.data()}))); } catch(e){console.error(e);setError("Could not load access management data.");} finally{setLoading(false);} }
+  useEffect(()=>{load();},[]);
+  function findUser(item){return users.find(u=>u.id===item.uid||u.email?.toLowerCase()===item.email?.toLowerCase());}
+  async function status(item,status){setError("");setMessage("");try{await updateDoc(doc(db,"accessRequests",item.id),{status,reviewedAt:new Date()});if(item.uid&&status!=="Granted")await setDoc(doc(db,"users",item.uid),{active:false,maxChars:1000,status},{merge:true});if(item.uid&&status==="Granted"){const u=findUser(item);await setDoc(doc(db,"users",item.uid),{active:true,maxChars:Number(item.adminLimit||u?.maxChars||2000),status:"Granted",email:item.email},{merge:true});}setMessage(`${item.email}: ${status}.`);await load();}catch(e){console.error(e);setError("Could not update this request.");}}
+  async function editLimit(item){const u=findUser(item),raw=window.prompt(`Character limit for ${item.email}`,String(item.adminLimit||u?.maxChars||2000));if(raw===null)return;const value=Number(raw);if(!Number.isInteger(value)||value<1001||value>MAX_LIMIT)return setError("Enter a whole number between 1,001 and 1,000,000.");if(!item.uid)return setError("Invite the user first; the account must exist before its limit can be edited.");try{await setDoc(doc(db,"users",item.uid),{maxChars:value,active:true,status:"Granted",limitUpdatedAt:new Date()},{merge:true});await updateDoc(doc(db,"accessRequests",item.id),{adminLimit:value,status:"Granted",reviewedAt:new Date()});setMessage(`Limit set to ${value.toLocaleString()} for ${item.email}.`);await load();}catch(e){console.error(e);setError("Could not set the character limit.");}}
+  async function invite(item){const value=Number(item.adminLimit||2000);if(!Number.isInteger(value)||value<1001)return setError("Set a valid limit before inviting.");try{const id=makeToken();await setDoc(doc(db,"accessInvites",id),{email:item.email.toLowerCase(),maxChars:value,requestId:item.id,used:false,createdAt:new Date(),expiresAt:Date.now()+604800000});await updateDoc(doc(db,"accessRequests",item.id),{status:"Granted",adminLimit:value,inviteId:id,invitedAt:new Date()});const url=`${window.location.origin}/?invite=${id}`;await navigator.clipboard.writeText(url);setMessage(`Invitation copied for ${item.email}. Valid for 7 days.`);await load();}catch(e){console.error(e);setError("Could not create invitation.");}}
+  async function revoke(item){const u=findUser(item);if(!item.uid)return setError("This user has not created an account yet.");if(!window.confirm(`Revoke extended access for ${item.email}?`))return;try{await setDoc(doc(db,"users",item.uid),{active:false,maxChars:1000,status:"Revoked",revokedAt:new Date()},{merge:true});await updateDoc(doc(db,"accessRequests",item.id),{status:"Denied",revokedAt:new Date()});setMessage(`Access revoked for ${item.email}.`);await load();}catch(e){console.error(e);setError("Could not revoke access.");}}
+  return <section className="admin-section access-requests-section"><div className="admin-section-heading"><div><h2>Extended access</h2><p>Approve users, issue invitations, edit limits, and revoke access.</p></div><button className="secondary-button admin-refresh" onClick={load} disabled={loading}>{loading?"Refreshing…":"Refresh"}</button></div>{error&&<div className="admin-error">{error}</div>}{message&&<div className="admin-success">{message}</div>}{items.length===0?<p className="admin-muted">No requests yet.</p>:<div className="request-list">{items.map(item=>{const u=findUser(item);const current=Number(item.adminLimit||u?.maxChars||1000);return <article className="request-card" key={item.id}><div className="request-card-top"><div><strong>{item.name}</strong><span>{item.email}</span></div><span className={`request-status status-${String(item.status||"Pending").toLowerCase()}`}>{item.status||"Pending"}</span></div><p>{item.purpose}</p><div className="request-meta"><span>Account: {u?(u.active===false?"Revoked":"Created"):"Not created"}</span><span>Limit: {current.toLocaleString()}</span></div><div className="request-actions"><button className="secondary-button" onClick={()=>status(item,"Pending")}>Pending</button><button className="secondary-button" onClick={()=>status(item,"Denied")}>Denied</button><button className="secondary-button" onClick={()=>status(item,"Granted")}>Grant</button><button className="primary-button" onClick={()=>editLimit(item)}>Edit limit</button>{item.status==="Granted"&&!item.uid&&<button className="primary-button" onClick={()=>invite(item)}>Invite</button>}{item.uid&&u?.active!==false&&<button className="secondary-button" onClick={()=>revoke(item)}>Revoke</button>}</div></article>})}</div>}</section>;
 }

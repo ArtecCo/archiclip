@@ -77,10 +77,7 @@ export default function AccessRequestsAdmin() {
     setMessage("");
     try {
       const u = findUser(item);
-      await updateDoc(doc(db, "accessRequests", item.id), {
-        status: nextStatus,
-        reviewedAt: new Date()
-      });
+      await updateDoc(doc(db, "accessRequests", item.id), { status: nextStatus, reviewedAt: new Date() });
       if (u) {
         await setDoc(doc(db, "users", u.id), {
           active: nextStatus === "Granted",
@@ -142,18 +139,11 @@ export default function AccessRequestsAdmin() {
     try {
       const id = makeToken();
       await setDoc(doc(db, "accessInvites", id), {
-        email: normalizedEmail(item.email),
-        maxChars: value,
-        requestId: item.id,
-        used: false,
-        createdAt: new Date(),
-        expiresAt: Date.now() + 604800000
+        email: normalizedEmail(item.email), maxChars: value, requestId: item.id,
+        used: false, createdAt: new Date(), expiresAt: Date.now() + 604800000
       });
       await updateDoc(doc(db, "accessRequests", item.id), {
-        status: "Granted",
-        adminLimit: value,
-        inviteId: id,
-        invitedAt: new Date()
+        status: "Granted", adminLimit: value, inviteId: id, invitedAt: new Date()
       });
       const url = `${window.location.origin}/?invite=${id}`;
       try { await navigator.clipboard.writeText(url); } catch { /* Clipboard may be unavailable. */ }
@@ -174,15 +164,10 @@ export default function AccessRequestsAdmin() {
     if (!window.confirm(`Revoke extended access for ${item.email}?`)) return;
     try {
       await setDoc(doc(db, "users", u.id), {
-        active: false,
-        maxChars: 1000,
-        status: "Revoked",
-        revokedAt: new Date()
+        active: false, maxChars: 1000, status: "Revoked", revokedAt: new Date()
       }, { merge: true });
       await updateDoc(doc(db, "accessRequests", item.id), {
-        status: "Denied",
-        revokedAt: new Date(),
-        uid: u.id
+        status: "Denied", revokedAt: new Date(), uid: u.id
       });
       setMessage(`Access revoked for ${item.email}.`);
       await load();
@@ -207,24 +192,30 @@ export default function AccessRequestsAdmin() {
         .access-requests-section .account-limit{font-weight:700}.access-requests-section .account-requests{color:#666}.access-requests-section .new-request-badge{display:inline-flex;margin-left:8px;padding:4px 7px;border-radius:999px;background:#fff3cf;color:#8a6500;font-size:10px;font-weight:800;vertical-align:middle}
         .access-requests-section .manage-button{width:auto!important;min-height:36px;height:36px;padding:0 13px;border:1px solid #dcdcd6;border-radius:9px;background:#111;color:#fff;font-size:12px;font-weight:700;cursor:pointer}
         .access-requests-section .manage-button:hover{transform:translateY(-1px)}
-        .access-requests-section .account-detail{grid-column:1/-1;margin-top:2px;padding:16px;border:1px solid #e5e5df;border-radius:12px;background:#fafaf8}
-        .access-requests-section .account-detail-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:start}
+        .access-requests-section .account-detail{grid-column:1/-1;margin-top:2px;padding:18px 20px;border:1px solid #e5e5df;border-radius:12px;background:#fafaf8}
+        .access-requests-section .account-detail-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:start}
         .access-requests-section .account-detail p{margin:0;color:#555;font-size:12px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
         .access-requests-section .detail-label{display:block;margin-bottom:5px;color:#888;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
         .access-requests-section .detail-time{color:#999;font-size:11px;white-space:nowrap}
-        .access-requests-section .manage-actions{display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;margin-top:14px}
-        .access-requests-section .manage-actions button{width:auto!important;min-height:38px;height:38px;padding:0 13px;border-radius:9px;font-size:12px}
-        .access-requests-section .status-select-label{display:flex;flex-direction:column;gap:5px;color:#666;font-size:10px;font-weight:700}
-        .access-requests-section .admin-status-select{width:140px;height:38px;margin:0;padding:0 9px;border:1px solid #ddd;border-radius:9px;background:#fff;font-size:12px}
+        .access-requests-section .manage-actions{display:grid;grid-template-columns:160px 120px 120px 120px;align-items:end;justify-content:start;gap:10px;margin-top:16px;width:100%;max-width:620px}
+        .access-requests-section .manage-actions button{width:120px!important;min-width:120px;min-height:40px;height:40px;padding:0 14px;border-radius:9px;font-size:12px;box-sizing:border-box}
+        .access-requests-section .status-select-label{display:flex;flex-direction:column;gap:6px;width:160px;color:#666;font-size:10px;font-weight:700}
+        .access-requests-section .admin-status-select{width:160px;height:40px;min-height:40px;margin:0;padding:0 10px;border:1px solid #ddd;border-radius:9px;background:#fff;font-size:12px;box-sizing:border-box}
         .access-requests-section .admin-refresh{width:auto!important}
-        @media(max-width:700px){.access-requests-section .account-row{grid-template-columns:1fr 90px 90px}.access-requests-section .account-head{display:none}.access-requests-section .account-row>*:nth-child(4){display:none}.access-requests-section .manage-button{justify-self:end}.access-requests-section .account-detail{grid-column:1/-1}.access-requests-section .account-detail-grid{grid-template-columns:1fr}.access-requests-section .detail-time{white-space:normal}}
+        @media(max-width:700px){
+          .access-requests-section .account-row{grid-template-columns:1fr 90px 90px}
+          .access-requests-section .account-head{display:none}
+          .access-requests-section .account-row>*:nth-child(4){display:none}
+          .access-requests-section .manage-button{justify-self:end}
+          .access-requests-section .account-detail{grid-column:1/-1}
+          .access-requests-section .account-detail-grid{grid-template-columns:1fr}
+          .access-requests-section .detail-time{white-space:normal}
+          .access-requests-section .manage-actions{grid-template-columns:160px 120px;max-width:290px}
+        }
       `}</style>
 
       <div className="admin-section-heading">
-        <div>
-          <h2>Extended access</h2>
-          <p>One account per email. New requests are highlighted so you can attend to them.</p>
-        </div>
+        <div><h2>Extended access</h2><p>One account per email. New requests are highlighted so you can attend to them.</p></div>
         <button className="secondary-button admin-refresh" onClick={load} disabled={loading}>{loading ? "Refreshing…" : "Refresh"}</button>
       </div>
 
@@ -243,30 +234,16 @@ export default function AccessRequestsAdmin() {
             const when = requestMillis(item);
             return (
               <div className="account-row" key={item.email}>
-                <div className="account-user">
-                  <strong>{item.name || item.email}{isNew && <span className="new-request-badge">New request</span>}</strong>
-                  <span>{item.email}</span>
-                </div>
+                <div className="account-user"><strong>{item.name || item.email}{isNew && <span className="new-request-badge">New request</span>}</strong><span>{item.email}</span></div>
                 <span className={`account-status ${String(statusValue).toLowerCase()}`}>{statusValue}</span>
                 <span className="account-limit">{current.toLocaleString()}</span>
                 <span className="account-requests">{item.requestCount || 1}</span>
                 <button className="manage-button" onClick={() => setManagedEmail(isManaged ? null : item.email)}>{isManaged ? "Close" : "Manage"}</button>
-
                 {isManaged && (
                   <div className="account-detail">
-                    <div className="account-detail-grid">
-                      <div>
-                        <span className="detail-label">Latest justification</span>
-                        <p>{item.purpose || "No justification provided."}</p>
-                      </div>
-                      <span className="detail-time">{when ? new Date(when).toLocaleString() : "No timestamp"}</span>
-                    </div>
+                    <div className="account-detail-grid"><div><span className="detail-label">Latest justification</span><p>{item.purpose || "No justification provided."}</p></div><span className="detail-time">{when ? new Date(when).toLocaleString() : "No timestamp"}</span></div>
                     <div className="manage-actions">
-                      <label className="status-select-label">Status
-                        <select className="admin-status-select" value={statusValue} onChange={e => status(item, e.target.value)}>
-                          <option value="Pending">Pending</option><option value="Denied">Denied</option><option value="Granted">Granted</option>
-                        </select>
-                      </label>
+                      <label className="status-select-label">Status<select className="admin-status-select" value={statusValue} onChange={e => status(item, e.target.value)}><option value="Pending">Pending</option><option value="Denied">Denied</option><option value="Granted">Granted</option></select></label>
                       <button className="primary-button" onClick={() => editLimit(item)}>Edit limit</button>
                       {statusValue === "Granted" && !u && <button className="primary-button" onClick={() => invite(item)}>Invite</button>}
                       {u && u.active !== false && <button className="secondary-button" onClick={() => revoke(item)}>Revoke</button>}

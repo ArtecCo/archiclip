@@ -101,11 +101,7 @@ export default function AdminPage() {
     setLoading(true);
 
     try {
-      await signInWithEmailAndPassword(
-        auth,
-        email.trim(),
-        password
-      );
+      await signInWithEmailAndPassword(auth, email.trim(), password);
       setPassword("");
     } catch (err) {
       console.error("Admin login failed:", err);
@@ -147,19 +143,9 @@ export default function AdminPage() {
 
       const byExpiry = await Promise.all(
         EXPIRY_TYPES.map(async ([key, label]) => {
-          const expiryQuery =
-            key === "forever"
-              ? query(
-                  clipsRef,
-                  where("expirationType", "==", key)
-                )
-              : query(
-                  clipsRef,
-                  where("expirationType", "==", key),
-                  where("expiresAt", ">", now)
-                );
-
-          const snapshot = await getCountFromServer(expiryQuery);
+          const snapshot = await getCountFromServer(
+            query(clipsRef, where("expirationType", "==", key))
+          );
 
           return {
             key,
@@ -169,14 +155,11 @@ export default function AdminPage() {
         })
       );
 
-      const knownActive = byExpiry.reduce(
+      const knownStored = byExpiry.reduce(
         (sum, item) => sum + item.count,
         0
       );
-      const legacy = Math.max(
-        0,
-        totalCurrent - expired - knownActive
-      );
+      const legacy = Math.max(0, totalCurrent - knownStored);
 
       setExpiredCount(expired);
       setMetrics({
@@ -191,7 +174,7 @@ export default function AdminPage() {
     } catch (err) {
       console.error("Metrics refresh failed:", err);
       setError(
-        "Could not load metrics. Check your Firestore indexes and rules."
+        "Could not load metrics. Check your Firestore rules."
       );
     } finally {
       setLoading(false);
@@ -395,7 +378,7 @@ export default function AdminPage() {
         <div className="admin-section-heading">
           <div>
             <h2>Clips by expiry</h2>
-            <p>Currently active clips by selected expiry period.</p>
+            <p>Currently stored clips grouped by their selected expiry period.</p>
           </div>
           <button
             className="secondary-button admin-refresh"

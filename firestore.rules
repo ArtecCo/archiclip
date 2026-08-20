@@ -27,7 +27,8 @@ service cloud.firestore {
     match /accessRequests/{requestId} {
       allow create: if request.resource.data.name is string && request.resource.data.email is string && request.resource.data.purpose is string && request.resource.data.status == 'Pending';
       allow read: if isAdmin() || (request.auth != null && resource.data.email == request.auth.token.email);
-      allow update, delete: if isAdmin();
+      allow update: if isAdmin() || (request.auth != null && resource.data.email == request.auth.token.email && request.resource.data.email == resource.data.email && request.resource.data.status == 'Pending' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','purpose','status','requestedAt','requestType','currentLimit']));
+      allow delete: if isAdmin();
     }
     match /accessInvites/{inviteId} {
       allow get: if true;

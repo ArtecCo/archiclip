@@ -25,7 +25,7 @@ function App() {
   const [text, setText] = useState(""), [expirationKey, setExpirationKey] = useState("10m"), [password, setPassword] = useState("");
   const [clip, setClip] = useState(null), [loading, setLoading] = useState(false), [error, setError] = useState(""), [pathCode, setPathCode] = useState(null);
   const [maxChars, setMaxChars] = useState(DEFAULT_LIMIT);
-  const updateMaxChars = useCallback((value) => setMaxChars(Math.max(DEFAULT_LIMIT, Number(value) || DEFAULT_LIMIT)), []);
+  const updateMaxChars = useCallback((value) => { const n = Number(value); setMaxChars(Number.isFinite(n) ? Math.min(100000, Math.max(0, n)) : DEFAULT_LIMIT); }, []);
   useEffect(() => { const path = window.location.pathname; if (path.startsWith("/c/")) { const code = path.replace("/c/", "").split("/")[0].trim().toUpperCase(); if (code) setPathCode(code); } }, []);
   async function createClip() {
     setError(""); if (!text.trim()) return setError("Please enter some text first."); if (text.length > maxChars) return setError(`Text is limited to ${maxChars.toLocaleString()} characters.`); if (password && password.length < 4) return setError("Password must be at least 4 characters."); setLoading(true);

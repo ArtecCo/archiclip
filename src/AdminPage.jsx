@@ -7,16 +7,44 @@ import {
 import {
   collection,
   doc,
+  getCountFromServer,
   getDoc,
   getDocs,
+  increment,
   limit,
   query,
+  serverTimestamp,
   where,
   writeBatch
 } from "firebase/firestore";
 import { auth, db } from "./firebase";
 
-const BATCH_SIZE = 500;
+const CLEANUP_BATCH_SIZE = 499;
+
+const EXPIRY_TYPES = [
+  ["1m", "1 minute"],
+  ["5m", "5 minutes"],
+  ["10m", "10 minutes"],
+  ["30m", "30 minutes"],
+  ["1h", "1 hour"],
+  ["6h", "6 hours"],
+  ["12h", "12 hours"],
+  ["24h", "24 hours"],
+  ["7d", "7 days"],
+  ["forever", "Forever"]
+];
+
+const metricsRef = doc(db, "adminMetrics", "global");
+
+const EMPTY_METRICS = {
+  current: 0,
+  expired: 0,
+  totalCreated: 0,
+  totalDeleted: 0,
+  byExpiry: [],
+  legacy: 0,
+  lastCleanupAt: null
+};
 
 export default function AdminPage() {
   const [user, setUser] = useState(undefined);
@@ -28,6 +56,7 @@ export default function AdminPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [expiredCount, setExpiredCount] = useState(null);
+  const [metrics, setMetrics] = useState(EMPTY_METRICS);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -44,7 +73,10 @@ export default function AdminPage() {
         const adminSnapshot = await getDoc(
           doc(db, "admins", currentUser.uid)
         );
-        setIsAdmin(adminSnapshot.exists() && adminSnapshot.data().enabled === true);
+        setIsAdmin(
+          adminSnapshot.exists() &&
+            adminSnapshot.data().enabled === true
+        );
       } catch (err) {
         console.error("Admin check failed:", err);
         setError("Could not verify admin access.");
@@ -56,6 +88,12 @@ export default function AdminPage() {
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    if (isAdmin) {
+      refreshMetrics();
+    }
+  }, [isAdmin]);
+
   async function handleLogin(event) {
     event.preventDefault();
     setError("");
@@ -63,7 +101,11 @@ export default function AdminPage() {
     setLoading(true);
 
     try {
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      await signInWithEmailAndPassword(
+        auth,
+        email.trim(),
+        password
+      );
       setPassword("");
     } catch (err) {
       console.error("Admin login failed:", err);
@@ -79,6 +121,83 @@ export default function AdminPage() {
     await signOut(auth);
   }
 
+  async function refreshMetrics() {
+    setError("");
+    setLoading(true);
+
+    try {
+      const now = Date.now();
+      const clipsRef = collection(db, "clips");
+
+      const [totalSnapshot, expiredSnapshot, storedMetricsSnapshot] =
+        await Promise.all([
+          getCountFromServer(clipsRef),
+          getCountFromServer(
+            query(clipsRef, where("expiresAt", "<=", now))
+          ),
+          getDoc(metricsRef)
+        ]);
+
+      const totalCurrent = totalSnapshot.data().count;
+      const expired = expiredSnapshot.data().count;
+      const storedMetrics = storedMetricsSnapshot.exists()
+        ? storedMetricsSnapshot.data()
+        : {};
+      const totalDeleted = Number(storedMetrics.totalDeleted || 0);
+
+      const byExpiry = await Promise.all(
+        EXPIRY_TYPES.map(async ([key, label]) => {
+          const expiryQuery =
+            key === "forever"
+              ? query(
+                  clipsRef,
+                  where("expirationType", "==", key)
+                )
+              : query(
+                  clipsRef,
+                  where("expirationType", "==", key),
+                  where("expiresAt", ">", now)
+                );
+
+          const snapshot = await getCountFromServer(expiryQuery);
+
+          return {
+            key,
+            label,
+            count: snapshot.data().count
+          };
+        })
+      );
+
+      const knownActive = byExpiry.reduce(
+        (sum, item) => sum + item.count,
+        0
+      );
+      const legacy = Math.max(
+        0,
+        totalCurrent - expired - knownActive
+      );
+
+      setExpiredCount(expired);
+      setMetrics({
+        current: totalCurrent,
+        expired,
+        totalCreated: totalCurrent + totalDeleted,
+        totalDeleted,
+        byExpiry,
+        legacy,
+        lastCleanupAt: storedMetrics.lastCleanupAt || null
+      });
+    } catch (err) {
+      console.error("Metrics refresh failed:", err);
+      setError(
+        "Could not load metrics. Check your Firestore indexes and rules."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function findExpired() {
     setError("");
     setMessage("");
@@ -89,7 +208,7 @@ export default function AdminPage() {
         query(
           collection(db, "clips"),
           where("expiresAt", "<=", Date.now()),
-          limit(BATCH_SIZE)
+          limit(CLEANUP_BATCH_SIZE)
         )
       );
 
@@ -97,11 +216,15 @@ export default function AdminPage() {
       setMessage(
         snapshot.size === 0
           ? "No expired clips found."
-          : `Found ${snapshot.size} expired clip${snapshot.size === 1 ? "" : "s"} in the next cleanup batch.`
+          : `Found ${snapshot.size} expired clip${
+              snapshot.size === 1 ? "" : "s"
+            } in the next cleanup batch.`
       );
     } catch (err) {
       console.error("Expired clip query failed:", err);
-      setError("Could not query expired clips. Check your Firestore rules.");
+      setError(
+        "Could not query expired clips. Check your Firestore rules."
+      );
     } finally {
       setLoading(false);
     }
@@ -121,7 +244,7 @@ export default function AdminPage() {
           query(
             collection(db, "clips"),
             where("expiresAt", "<=", Date.now()),
-            limit(BATCH_SIZE)
+            limit(CLEANUP_BATCH_SIZE)
           )
         );
 
@@ -133,6 +256,15 @@ export default function AdminPage() {
           batch.delete(clip.ref);
         });
 
+        batch.set(
+          metricsRef,
+          {
+            totalDeleted: increment(snapshot.size),
+            lastCleanupAt: serverTimestamp()
+          },
+          { merge: true }
+        );
+
         await batch.commit();
         deleted += snapshot.size;
       }
@@ -141,8 +273,12 @@ export default function AdminPage() {
       setMessage(
         deleted === 0
           ? "No expired clips needed to be deleted."
-          : `Deleted ${deleted} expired clip${deleted === 1 ? "" : "s"}.`
+          : `Deleted ${deleted} expired clip${
+              deleted === 1 ? "" : "s"
+            }.`
       );
+
+      await refreshMetrics();
     } catch (err) {
       console.error("Expired clip cleanup failed:", err);
       setError(
@@ -150,6 +286,7 @@ export default function AdminPage() {
           ? `Cleanup stopped after deleting ${deleted} clips.`
           : "Cleanup failed. Check your Firestore rules."
       );
+      await refreshMetrics();
     } finally {
       setLoading(false);
     }
@@ -220,7 +357,7 @@ export default function AdminPage() {
       <div className="admin-topbar">
         <div>
           <div className="admin-badge">ARCHICLIP ADMIN</div>
-          <h1>Clip cleanup</h1>
+          <h1>Dashboard</h1>
         </div>
         <button className="secondary-button" onClick={handleLogout}>
           Sign out
@@ -228,40 +365,139 @@ export default function AdminPage() {
       </div>
 
       <p className="admin-muted">
-        Permanently delete clips whose expiration time has passed.
+        Monitor ArchiClip usage and permanently remove expired clips.
       </p>
 
-      <div className="admin-stat">
-        <span>Expired clips found</span>
-        <strong>{expiredCount ?? "—"}</strong>
+      <div className="admin-metrics-grid">
+        <MetricCard
+          label="Total created"
+          value={metrics.totalCreated}
+          detail="Current + deleted"
+        />
+        <MetricCard
+          label="Currently stored"
+          value={metrics.current}
+          detail="In Firestore"
+        />
+        <MetricCard
+          label="Total deleted"
+          value={metrics.totalDeleted}
+          detail="Admin cleanup"
+        />
+        <MetricCard
+          label="Expired pending"
+          value={metrics.expired}
+          detail="Unavailable to users"
+        />
       </div>
 
-      {error && <div className="admin-error">{error}</div>}
-      {message && <div className="admin-success">{message}</div>}
+      <section className="admin-section">
+        <div className="admin-section-heading">
+          <div>
+            <h2>Clips by expiry</h2>
+            <p>Currently active clips by selected expiry period.</p>
+          </div>
+          <button
+            className="secondary-button admin-refresh"
+            onClick={refreshMetrics}
+            disabled={loading}
+          >
+            {loading ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
 
-      <div className="admin-actions">
-        <button
-          className="secondary-button"
-          onClick={findExpired}
-          disabled={loading}
-        >
-          Check expired
-        </button>
+        <div className="expiry-grid">
+          {metrics.byExpiry.map((item) => (
+            <div className="expiry-row" key={item.key}>
+              <span>{item.label}</span>
+              <strong>{item.count}</strong>
+            </div>
+          ))}
 
-        <button
-          className="primary-button"
-          onClick={clearExpired}
-          disabled={loading}
-        >
-          {loading ? "Cleaning…" : "Delete expired clips"}
-        </button>
-      </div>
+          <div className="expiry-row expiry-row-muted">
+            <span>Expired / awaiting cleanup</span>
+            <strong>{metrics.expired}</strong>
+          </div>
 
-      <div className="admin-warning">
-        <strong>This is permanent.</strong> Deleted clips cannot be restored.
-      </div>
+          {metrics.legacy > 0 && (
+            <div className="expiry-row expiry-row-muted">
+              <span>Legacy / unspecified</span>
+              <strong>{metrics.legacy}</strong>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="admin-section cleanup-section">
+        <div className="admin-section-heading">
+          <div>
+            <h2>Cleanup</h2>
+            <p>
+              Expired clips are already inaccessible. Cleanup permanently
+              removes them from Firestore.
+            </p>
+          </div>
+        </div>
+
+        {error && <div className="admin-error">{error}</div>}
+        {message && <div className="admin-success">{message}</div>}
+
+        <div className="admin-stat">
+          <span>Expired clips ready for deletion</span>
+          <strong>{expiredCount ?? metrics.expired}</strong>
+        </div>
+
+        <div className="admin-actions">
+          <button
+            className="secondary-button"
+            onClick={findExpired}
+            disabled={loading}
+          >
+            Check expired
+          </button>
+
+          <button
+            className="primary-button"
+            onClick={clearExpired}
+            disabled={loading}
+          >
+            {loading ? "Cleaning…" : "Delete expired clips"}
+          </button>
+        </div>
+
+        <div className="admin-warning">
+          <strong>This is permanent.</strong> Deleted clips cannot be restored.
+        </div>
+
+        {metrics.lastCleanupAt && (
+          <p className="admin-last-cleanup">
+            Last cleanup: {formatDate(metrics.lastCleanupAt)}
+          </p>
+        )}
+      </section>
     </AdminShell>
   );
+}
+
+function MetricCard({ label, value, detail }) {
+  return (
+    <div className="admin-metric-card">
+      <span>{label}</span>
+      <strong>{Number(value || 0).toLocaleString()}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
+function formatDate(value) {
+  if (!value) return "—";
+
+  const date =
+    typeof value.toDate === "function"
+      ? value.toDate()
+      : new Date(value);
+
+  return date.toLocaleString();
 }
 
 function AdminShell({ children }) {

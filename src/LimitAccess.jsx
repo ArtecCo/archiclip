@@ -1,150 +1,79 @@
 import { useEffect, useState } from "react";
-import { addDoc, collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
-import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { addDoc, collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "./firebase";
 import "./access.css";
 
 export const DEFAULT_LIMIT = 1000;
 
+function token() { const bytes = crypto.getRandomValues(new Uint8Array(18)); return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(""); }
+
 export default function LimitAccess({ onLimitChange }) {
-  const [open, setOpen] = useState(false);
-  const [user, setUser] = useState(null);
-  const [limit, setLimit] = useState(DEFAULT_LIMIT);
-  const [requests, setRequests] = useState([]);
-  const [mode, setMode] = useState("signin");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [purpose, setPurpose] = useState("");
-  const [requestEmail, setRequestEmail] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const [open, setOpen] = useState(false), [user, setUser] = useState(null), [limit, setLimit] = useState(DEFAULT_LIMIT);
+  const [requests, setRequests] = useState([]), [mode, setMode] = useState("request"), [email, setEmail] = useState(""), [password, setPassword] = useState("");
+  const [name, setName] = useState(""), [purpose, setPurpose] = useState(""), [busy, setBusy] = useState(false), [message, setMessage] = useState(""), [error, setError] = useState("");
+  const inviteToken = new URLSearchParams(window.location.search).get("invite");
 
   useEffect(() => onAuthStateChanged(auth, async (currentUser) => {
-    setUser(currentUser);
-    setError("");
-    if (!currentUser) {
-      setLimit(DEFAULT_LIMIT);
-      onLimitChange?.(DEFAULT_LIMIT);
-      return;
-    }
-    setEmail(currentUser.email || "");
-    setRequestEmail(currentUser.email || "");
-    await ensureProfile(currentUser);
+    setUser(currentUser); setError("");
+    if (!currentUser) { setLimit(DEFAULT_LIMIT); onLimitChange?.(DEFAULT_LIMIT); return; }
+    await loadProfile(currentUser);
   }), [onLimitChange]);
 
-  async function ensureProfile(currentUser) {
+  useEffect(() => { if (inviteToken) { setOpen(true); setMode("invite"); } }, [inviteToken]);
+
+  async function loadProfile(currentUser) {
     try {
-      const ref = doc(db, "users", currentUser.uid);
-      const snap = await getDoc(ref);
-      if (!snap.exists()) {
-        await setDoc(ref, { uid: currentUser.uid, email: currentUser.email || "", maxChars: DEFAULT_LIMIT, createdAt: new Date() });
-        setLimit(DEFAULT_LIMIT);
-        onLimitChange?.(DEFAULT_LIMIT);
-      } else {
-        const nextLimit = Math.max(DEFAULT_LIMIT, Number(snap.data().maxChars || DEFAULT_LIMIT));
-        setLimit(nextLimit);
-        onLimitChange?.(nextLimit);
-      }
-      await loadRequests(currentUser.uid);
-    } catch (err) {
-      console.error(err);
-      setLimit(DEFAULT_LIMIT);
-      onLimitChange?.(DEFAULT_LIMIT);
-    }
+      const snap = await getDoc(doc(db, "users", currentUser.uid));
+      const data = snap.exists() ? snap.data() : {};
+      const next = data.active === false ? DEFAULT_LIMIT : Math.max(DEFAULT_LIMIT, Number(data.maxChars || DEFAULT_LIMIT));
+      setLimit(next); onLimitChange?.(next); await loadRequests(currentUser.email);
+    } catch { setLimit(DEFAULT_LIMIT); onLimitChange?.(DEFAULT_LIMIT); }
   }
 
-  async function loadRequests(uid) {
+  async function loadRequests(userEmail) {
+    try { const snap = await getDocs(query(collection(db, "accessRequests"), where("email", "==", userEmail))); setRequests(snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a,b) => (b.requestedAt?.seconds || 0) - (a.requestedAt?.seconds || 0))); } catch {}
+  }
+
+  function clear() { setError(""); setMessage(""); }
+
+  async function submitRequest(e) {
+    e.preventDefault(); clear(); if (!name.trim() || !email.trim() || !purpose.trim()) return setError("Please complete all fields."); setBusy(true);
     try {
-      const snapshot = await getDocs(query(collection(db, "accessRequests"), where("uid", "==", uid)));
-      setRequests(snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).sort((a, b) => (b.requestedAt?.seconds || 0) - (a.requestedAt?.seconds || 0)));
-    } catch (err) {
-      console.error(err);
-    }
+      await addDoc(collection(db, "accessRequests"), { name: name.trim(), email: email.trim().toLowerCase(), purpose: purpose.trim(), status: "Pending", requestedAt: new Date() });
+      setName(""); setPurpose(""); setMessage("Request submitted. We will contact you after review.");
+    } catch (err) { console.error(err); setError("Could not submit your request. Please try again."); } finally { setBusy(false); }
   }
 
-  function clearFeedback() { setError(""); setMessage(""); }
+  async function signIn(e) {
+    e.preventDefault(); clear(); setBusy(true); try { await signInWithEmailAndPassword(auth, email.trim(), password); setPassword(""); setMessage("Signed in."); } catch { setError("Invalid email or password."); } finally { setBusy(false); }
+  }
 
-  async function authenticate(event) {
-    event.preventDefault();
-    clearFeedback();
-    setBusy(true);
+  async function claimInvite(e) {
+    e.preventDefault(); clear(); if (!inviteToken) return setError("Invitation link is missing."); setBusy(true);
     try {
-      if (mode === "signup") {
-        await createUserWithEmailAndPassword(auth, email.trim(), password);
-        setMessage("Account created. You can now request an extended limit.");
-      } else {
-        await signInWithEmailAndPassword(auth, email.trim(), password);
-        setMessage("Signed in.");
-      }
-      setPassword("");
-    } catch (err) {
-      console.error(err);
-      setError(mode === "signup" ? "Could not create the account. Use a valid email and a password of at least 6 characters." : "Invalid email or password.");
-    } finally { setBusy(false); }
+      const inviteSnap = await getDoc(doc(db, "accessInvites", inviteToken));
+      if (!inviteSnap.exists()) throw new Error("invalid");
+      const invite = inviteSnap.data();
+      if (invite.used || (invite.expiresAt && Date.now() > invite.expiresAt)) throw new Error("expired");
+      const account = await createUserWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+      await updateDoc(doc(db, "users", account.user.uid), { maxChars: Number(invite.maxChars), active: true, email: account.user.email, invitedAt: new Date(), inviteId: inviteToken });
+      await updateDoc(doc(db, "accessInvites", inviteToken), { used: true, usedBy: account.user.uid, usedAt: new Date() });
+      if (invite.requestId) await updateDoc(doc(db, "accessRequests", invite.requestId), { status: "Granted", grantedAt: new Date(), uid: account.user.uid, adminLimit: Number(invite.maxChars) });
+      setLimit(Number(invite.maxChars)); onLimitChange?.(Number(invite.maxChars)); setMessage(`Account created. Your limit is ${Number(invite.maxChars).toLocaleString()} characters.`); window.history.replaceState({}, "", window.location.pathname); setMode("account");
+    } catch (err) { console.error(err); setError(err?.message === "expired" ? "This invitation has expired or has already been used." : "Could not create the account. Check the invitation, email and password."); } finally { setBusy(false); }
   }
 
-  async function submitRequest(event) {
-    event.preventDefault();
-    clearFeedback();
-    if (!user) return setError("Sign in before requesting an extended limit.");
-    if (!name.trim() || !requestEmail.trim() || !purpose.trim()) return setError("Please complete all fields.");
-    setBusy(true);
-    try {
-      await addDoc(collection(db, "accessRequests"), {
-        uid: user.uid,
-        name: name.trim(),
-        email: requestEmail.trim(),
-        purpose: purpose.trim(),
-        status: "Pending",
-        requestedAt: new Date()
-      });
-      setName("");
-      setPurpose("");
-      setMessage("Request submitted. The admin will review it.");
-      await loadRequests(user.uid);
-    } catch (err) {
-      console.error(err);
-      setError("Could not submit the request. Please try again.");
-    } finally { setBusy(false); }
-  }
-
-  async function logout() {
-    clearFeedback();
-    await signOut(auth);
-    setMode("signin");
-    setOpen(false);
-  }
+  async function logout() { await signOut(auth); setOpen(false); setMode("request"); }
 
   return <>
-    <button className="limit-fab" onClick={() => { clearFeedback(); setOpen(true); }} aria-label="Character limit and account options">
-      {limit > DEFAULT_LIMIT ? `${limit.toLocaleString()} chars` : "Need more characters?"}
-    </button>
+    <button className="limit-fab" onClick={() => { clear(); setOpen(true); }} aria-label="Request extended character limit">{limit > DEFAULT_LIMIT ? `${limit.toLocaleString()} chars` : "Need more characters?"}</button>
     {open && <div className="limit-dialog">
-      <div className="limit-dialog-header"><div><span className="small-label">ARCHICLIP ACCESS</span><h2>{user ? "Extended character limit" : "Use more characters"}</h2></div><button className="limit-close" onClick={() => setOpen(false)} aria-label="Close">×</button></div>
-      {!user ? <>
-        <p className="limit-muted">Create an account or sign in to request and use an extended limit.</p>
-        <div className="limit-tabs"><button className={mode === "signin" ? "active" : ""} onClick={() => { clearFeedback(); setMode("signin"); }}>Sign in</button><button className={mode === "signup" ? "active" : ""} onClick={() => { clearFeedback(); setMode("signup"); }}>Create account</button></div>
-        <form className="limit-form" onSubmit={authenticate}>
-          <label htmlFor="limit-email">Email</label><input id="limit-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
-          <label htmlFor="limit-password">Password</label><input id="limit-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} autoComplete={mode === "signup" ? "new-password" : "current-password"} />
-          {error && <div className="limit-error">{error}</div>}{message && <div className="limit-success">{message}</div>}
-          <button className="primary-button create-button" disabled={busy}>{busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}</button>
-        </form>
-      </> : <>
-        <div className="limit-account"><span>Signed in as</span><strong>{user.email}</strong><small>Current limit: {limit.toLocaleString()} characters</small></div>
-        {limit > DEFAULT_LIMIT && <div className="limit-granted">✓ Extended limit granted</div>}
-        <form className="limit-form" onSubmit={submitRequest}>
-          <label htmlFor="request-name">Name</label><input id="request-name" value={name} onChange={(e) => setName(e.target.value)} required />
-          <label htmlFor="request-email">Email</label><input id="request-email" type="email" value={requestEmail} onChange={(e) => setRequestEmail(e.target.value)} required />
-          <label htmlFor="request-purpose">Purpose</label><textarea id="request-purpose" className="limit-purpose" value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder="Why do you need a higher character limit?" required />
-          {error && <div className="limit-error">{error}</div>}{message && <div className="limit-success">{message}</div>}
-          <button className="primary-button create-button" disabled={busy}>{busy ? "Submitting…" : "Request extended limit"}</button>
-        </form>
-        {requests.length > 0 && <div className="limit-history"><strong>Your requests</strong>{requests.slice(0, 3).map((item) => <div className="limit-request" key={item.id}><span>{item.status}</span><small>{item.purpose}</small></div>)}</div>}
-        <button className="limit-signout" onClick={logout}>Sign out</button>
-      </>}
+      <div className="limit-dialog-header"><div><span className="small-label">ARCHICLIP ACCESS</span><h2>{mode === "invite" ? "Create your account" : mode === "signin" ? "Sign in" : "Need more characters?"}</h2></div><button className="limit-close" onClick={() => setOpen(false)} aria-label="Close">×</button></div>
+      {mode === "request" && <><p className="limit-muted">Request an extended character limit. If approved, we will contact you with an invitation.</p><form className="limit-form" onSubmit={submitRequest}><label>Name</label><input value={name} onChange={e => setName(e.target.value)} required /><label>Email</label><input type="email" value={email} onChange={e => setEmail(e.target.value)} required /><label>Purpose</label><textarea className="limit-purpose" value={purpose} onChange={e => setPurpose(e.target.value)} placeholder="Why do you need a higher character limit?" required />{error && <div className="limit-error">{error}</div>}{message && <div className="limit-success">{message}</div>}<button className="primary-button create-button" disabled={busy}>{busy ? "Submitting…" : "Submit request"}</button></form><button className="limit-signin-link" onClick={() => { clear(); setMode("signin"); }}>Already invited? Sign in</button></>}
+      {mode === "signin" && <><p className="limit-muted">Sign in to use your approved character limit.</p><form className="limit-form" onSubmit={signIn}><label>Email</label><input type="email" value={email} onChange={e => setEmail(e.target.value)} required /><label>Password</label><input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} />{error && <div className="limit-error">{error}</div>}{message && <div className="limit-success">{message}</div>}<button className="primary-button create-button" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button></form><button className="limit-signin-link" onClick={() => { clear(); setMode("request"); }}>Request access</button></>}
+      {mode === "invite" && <><p className="limit-muted">Your invitation has been approved. Create your ArchiClip account below.</p><form className="limit-form" onSubmit={claimInvite}><label>Email</label><input type="email" value={email} onChange={e => setEmail(e.target.value)} required /><label>Password</label><input type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} autoComplete="new-password" />{error && <div className="limit-error">{error}</div>}{message && <div className="limit-success">{message}</div>}<button className="primary-button create-button" disabled={busy}>{busy ? "Creating…" : "Create account"}</button></form></>}
+      {mode === "account" && <><div className="limit-account"><span>Signed in as</span><strong>{user?.email}</strong><small>Current limit: {limit.toLocaleString()} characters</small></div>{requests.length > 0 && <div className="limit-history"><strong>Your requests</strong>{requests.slice(0,3).map(r => <div className="limit-request" key={r.id}><span>{r.status}</span><small>{r.purpose}</small></div>)}</div>}<button className="limit-signout" onClick={logout}>Sign out</button></>}
     </div>}
   </>;
 }

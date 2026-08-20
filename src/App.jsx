@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import {
   doc,
   getDoc,
+  increment,
   serverTimestamp,
-  setDoc
+  setDoc,
+  writeBatch
 } from "firebase/firestore";
 import { QRCodeSVG } from "qrcode.react";
 import { db } from "./firebase";
@@ -23,6 +25,8 @@ const EXPIRATION_OPTIONS = [
   { key: "7d", label: "7 days", value: 7 * 24 * 60 * 60 * 1000 },
   { key: "forever", label: "Forever", value: null }
 ];
+
+const adminMetricsRef = doc(db, "adminMetrics", "global");
 
 function generateCode() {
   const characters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -102,7 +106,9 @@ function App() {
       const expiresAt =
         expiration.value === null ? null : Date.now() + expiration.value;
 
-      await setDoc(clipRef, {
+      const batch = writeBatch(db);
+
+      batch.set(clipRef, {
         code,
         content: text,
         createdAt: serverTimestamp(),
@@ -111,6 +117,17 @@ function App() {
         expirationLabel: expiration.label,
         views: 0
       });
+
+      batch.set(
+        adminMetricsRef,
+        {
+          totalCreated: increment(1),
+          [`createdByExpiry.${expiration.key}`]: increment(1)
+        },
+        { merge: true }
+      );
+
+      await batch.commit();
 
       setClip({
         code,
@@ -178,23 +195,18 @@ function App() {
       <div className="app">
         <main className="container">
           <Header />
-
           <section className="card success-card">
             <div className="success-icon">✓</div>
             <h1>Your clip is ready</h1>
             <p className="muted">
               Open this link on another device or share it with someone.
             </p>
-
             <div className="code-box">{clip.code}</div>
-
             <div className="qr-wrapper">
               <QRCodeSVG value={shareUrl} size={190} level="M" />
             </div>
-
             <div className="share-url">{shareUrl}</div>
             <Countdown expiresAt={clip.expiresAt} />
-
             <div className="button-row">
               <button className="primary-button" onClick={() => copyText(shareUrl)}>
                 Copy Link
@@ -203,7 +215,6 @@ function App() {
                 Share
               </button>
             </div>
-
             <button className="text-button" onClick={reset}>
               Create another clip
             </button>
@@ -217,16 +228,13 @@ function App() {
     <div className="app">
       <main className="container">
         <Header />
-
         <section className="hero">
           <div className="badge">FAST • SIMPLE • TEMPORARY</div>
-
           <h1>
             Send text
             <br />
             <span>instantly.</span>
           </h1>
-
           <p>
             Paste something here, get a link, and open it anywhere. No account required.
           </p>
@@ -234,7 +242,6 @@ function App() {
 
         <section className="card">
           <label htmlFor="clip-text">Your text</label>
-
           <textarea
             id="clip-text"
             value={text}
@@ -242,13 +249,11 @@ function App() {
             placeholder="Paste text, links, notes, commands..."
             maxLength={10000}
           />
-
           <div className="textarea-footer">
             <span>{text.length.toLocaleString()} / 10,000</span>
           </div>
 
           <label htmlFor="expiration">Expires after</label>
-
           <select
             id="expiration"
             value={expirationKey}
@@ -277,7 +282,6 @@ function App() {
           <Feature icon="🔗" title="Simple" text="One link works across your devices." />
           <Feature icon="⌛" title="Temporary" text="Clips can expire automatically." />
         </section>
-
         <Footer />
       </main>
     </div>
@@ -293,19 +297,16 @@ function ClipViewer({ code, onHome }) {
     async function loadClip() {
       try {
         const snapshot = await getDoc(doc(db, "clips", code));
-
         if (!snapshot.exists()) {
           setError("This clip does not exist.");
           return;
         }
 
         const data = snapshot.data();
-
         if (typeof data.expiresAt === "number" && Date.now() > data.expiresAt) {
           setError("This clip has expired.");
           return;
         }
-
         setClip(data);
       } catch (err) {
         console.error("Load clip error:", err);
@@ -320,7 +321,6 @@ function ClipViewer({ code, onHome }) {
 
   async function copy() {
     if (!clip?.content) return;
-
     try {
       await navigator.clipboard.writeText(clip.content);
       alert("Copied!");
@@ -364,7 +364,6 @@ function ClipViewer({ code, onHome }) {
     <div className="app">
       <main className="container">
         <Header />
-
         <section className="card">
           <div className="clip-header">
             <div>
@@ -373,14 +372,11 @@ function ClipViewer({ code, onHome }) {
             </div>
             <span className="live-dot">LIVE</span>
           </div>
-
           <div className="content-box">{clip.content}</div>
           <Countdown expiresAt={clip.expiresAt} />
-
           <button className="primary-button create-button" onClick={copy}>
             Copy Text
           </button>
-
           <button className="text-button" onClick={onHome}>
             Create your own clip
           </button>
@@ -397,18 +393,15 @@ function Countdown({ expiresAt }) {
 
   useEffect(() => {
     if (typeof expiresAt !== "number") return undefined;
-
     const timer = setInterval(() => {
       setRemaining(Math.max(0, expiresAt - Date.now()));
     }, 1000);
-
     return () => clearInterval(timer);
   }, [expiresAt]);
 
   if (expiresAt === null || typeof expiresAt === "undefined") {
     return <div className="countdown">Never expires</div>;
   }
-
   if (remaining <= 0) {
     return <div className="countdown expired">Expired</div>;
   }
@@ -422,7 +415,6 @@ function Countdown({ expiresAt }) {
   const displayMinutes = minutes % 60;
 
   let label;
-
   if (days > 0) {
     label = `${days}d ${String(displayHours).padStart(2, "0")}h`;
   } else if (hours > 0) {
@@ -448,15 +440,9 @@ function Header() {
           window.location.href = "/";
         }}
       >
-        <img
-          className="logo-image"
-          src="/archiclip-logo.svg"
-          alt=""
-          aria-hidden="true"
-        />
+        <img className="logo-image" src="/archiclip-logo.svg" alt="" aria-hidden="true" />
         <span>ArchiClip</span>
       </button>
-
       <span className="header-tag">Online Clipboard</span>
     </header>
   );

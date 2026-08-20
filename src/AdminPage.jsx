@@ -42,11 +42,22 @@ export default function AdminPage() {
         getCountFromServer(eventsRef),
         getDoc(metricsRef)
       ]);
-      const current = currentSnap.data().count, expired = expiredSnap.data().count, totalCreated = historicalSnap.data().count;
+      const current = currentSnap.data().count;
+      const expired = expiredSnap.data().count;
+      const historicalEvents = historicalSnap.data().count;
       const stored = deletedSnap.exists() ? deletedSnap.data() : {};
       const totalDeleted = Number(stored.totalDeleted || 0);
 
-      const byExpiry = await Promise.all(EXPIRY_TYPES.map(async ([key, label]) => ({ key, label, count: (await getCountFromServer(query(eventsRef, where("expirationType", "==", key)))).data().count })));
+      // Every deleted clip was once a created clip. Current clips are the other side
+      // of that lifetime total. Creation events may also exist, so use the largest
+      // reliable figure rather than double-counting tracked events.
+      const totalCreated = Math.max(historicalEvents, current + totalDeleted);
+
+      const byExpiry = await Promise.all(EXPIRY_TYPES.map(async ([key, label]) => ({
+        key,
+        label,
+        count: (await getCountFromServer(query(eventsRef, where("expirationType", "==", key)))).data().count
+      })));
       const knownHistorical = byExpiry.reduce((sum, item) => sum + item.count, 0);
       const legacy = Math.max(0, totalCreated - knownHistorical);
 
@@ -97,7 +108,11 @@ export default function AdminPage() {
         snap.docs.forEach((clip) => batch.delete(clip.ref));
         await batch.commit(); deleted += snap.size;
       }
-      if (deleted > 0) await setDoc(metricsRef, { totalDeleted: (await getDoc(metricsRef)).exists() ? Number((await getDoc(metricsRef)).data().totalDeleted || 0) + deleted : deleted, lastCleanupAt: serverTimestamp() }, { merge: true });
+      if (deleted > 0) {
+        const currentMetrics = await getDoc(metricsRef);
+        const oldDeleted = currentMetrics.exists() ? Number(currentMetrics.data().totalDeleted || 0) : 0;
+        await setDoc(metricsRef, { totalDeleted: oldDeleted + deleted, lastCleanupAt: serverTimestamp() }, { merge: true });
+      }
       setExpiredCount(0); setMessage(deleted === 0 ? "No expired clips needed to be deleted." : `Deleted ${deleted} expired clip${deleted === 1 ? "" : "s"}.`); await refreshMetrics();
     } catch (err) { console.error(err); setError(deleted > 0 ? `Cleanup stopped after deleting ${deleted} clips.` : "Cleanup failed. Check your Firestore rules."); await refreshMetrics(); }
     finally { setLoading(false); }

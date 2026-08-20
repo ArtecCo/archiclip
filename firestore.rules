@@ -18,7 +18,15 @@ service cloud.firestore {
         && request.resource.data.content.size() <= 10000
         && request.resource.data.code is string
         && request.resource.data.code.size() == 6
-        && request.resource.data.expiresAt is number;
+        && request.resource.data.expiresAt is number
+        || (
+          request.resource.data.content is string
+          && request.resource.data.content.size() > 0
+          && request.resource.data.content.size() <= 10000
+          && request.resource.data.code is string
+          && request.resource.data.code.size() == 6
+          && request.resource.data.expiresAt == null
+        );
 
       allow update: if false;
       allow delete: if isAdmin();
@@ -27,6 +35,10 @@ service cloud.firestore {
     match /admins/{userId} {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow write: if false;
+    }
+
+    match /adminMetrics/{metricId} {
+      allow read, write: if isAdmin();
     }
   }
 }

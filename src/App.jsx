@@ -11,23 +11,13 @@ import { db } from "./firebase";
 const CODE_LENGTH = 6;
 
 const EXPIRATION_OPTIONS = [
-  {
-    label: "10 minutes",
-    value: 10 * 60 * 1000
-  },
-  {
-    label: "1 hour",
-    value: 60 * 60 * 1000
-  },
-  {
-    label: "24 hours",
-    value: 24 * 60 * 60 * 1000
-  }
+  { label: "10 minutes", value: 10 * 60 * 1000 },
+  { label: "1 hour", value: 60 * 60 * 1000 },
+  { label: "24 hours", value: 24 * 60 * 60 * 1000 }
 ];
 
 function generateCode() {
   const characters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
   let result = "";
 
   for (let i = 0; i < CODE_LENGTH; i++) {
@@ -41,14 +31,10 @@ function generateCode() {
 
 function App() {
   const [text, setText] = useState("");
-  const [expiration, setExpiration] = useState(
-    EXPIRATION_OPTIONS[0].value
-  );
-
+  const [expiration, setExpiration] = useState(EXPIRATION_OPTIONS[0].value);
   const [clip, setClip] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
   const [pathCode, setPathCode] = useState(null);
 
   useEffect(() => {
@@ -61,9 +47,7 @@ function App() {
         .trim()
         .toUpperCase();
 
-      if (code) {
-        setPathCode(code);
-      }
+      if (code) setPathCode(code);
     }
   }, []);
 
@@ -109,12 +93,7 @@ function App() {
         views: 0
       });
 
-      setClip({
-        code,
-        content: text,
-        expiresAt
-      });
-
+      setClip({ code, content: text, expiresAt });
       window.history.pushState({}, "", `/c/${code}`);
     } catch (err) {
       console.error("Create clip error:", err);
@@ -129,7 +108,6 @@ function App() {
     setClip(null);
     setError("");
     setPathCode(null);
-
     window.history.pushState({}, "", "/");
   }
 
@@ -147,7 +125,7 @@ function App() {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: "Shared Clip",
+          title: "ArchiClip",
           text: "Open this shared text",
           url
         });
@@ -165,6 +143,8 @@ function App() {
   }
 
   if (clip) {
+    const shareUrl = `${window.location.origin}/c/${clip.code}`;
+
     return (
       <div className="app">
         <main className="container">
@@ -172,9 +152,7 @@ function App() {
 
           <section className="card success-card">
             <div className="success-icon">✓</div>
-
             <h1>Your clip is ready</h1>
-
             <p className="muted">
               Open this link on another device or share it with someone.
             </p>
@@ -182,33 +160,17 @@ function App() {
             <div className="code-box">{clip.code}</div>
 
             <div className="qr-wrapper">
-              <QRCodeSVG
-                value={`${window.location.origin}/c/${clip.code}`}
-                size={190}
-                level="M"
-              />
+              <QRCodeSVG value={shareUrl} size={190} level="M" />
             </div>
 
-            <div className="share-url">
-              {window.location.origin}/c/{clip.code}
-            </div>
-
+            <div className="share-url">{shareUrl}</div>
             <Countdown expiresAt={clip.expiresAt} />
 
             <div className="button-row">
-              <button
-                className="primary-button"
-                onClick={() =>
-                  copyText(`${window.location.origin}/c/${clip.code}`)
-                }
-              >
+              <button className="primary-button" onClick={() => copyText(shareUrl)}>
                 Copy Link
               </button>
-
-              <button
-                className="secondary-button"
-                onClick={shareClip}
-              >
+              <button className="secondary-button" onClick={shareClip}>
                 Share
               </button>
             </div>
@@ -237,8 +199,7 @@ function App() {
           </h1>
 
           <p>
-            Paste something here, get a link, and open it anywhere.
-            No account required.
+            Paste something here, get a link, and open it anywhere. No account required.
           </p>
         </section>
 
@@ -262,9 +223,7 @@ function App() {
           <select
             id="expiration"
             value={expiration}
-            onChange={(event) =>
-              setExpiration(Number(event.target.value))
-            }
+            onChange={(event) => setExpiration(Number(event.target.value))}
           >
             {EXPIRATION_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -285,23 +244,9 @@ function App() {
         </section>
 
         <section className="features">
-          <Feature
-            icon="⚡"
-            title="Instant"
-            text="Create a shareable clip in seconds."
-          />
-
-          <Feature
-            icon="🔗"
-            title="Simple"
-            text="One link works across your devices."
-          />
-
-          <Feature
-            icon="⌛"
-            title="Temporary"
-            text="Clips automatically expire."
-          />
+          <Feature icon="⚡" title="Instant" text="Create a shareable clip in seconds." />
+          <Feature icon="🔗" title="Simple" text="One link works across your devices." />
+          <Feature icon="⌛" title="Temporary" text="Clips automatically expire." />
         </section>
 
         <Footer />
@@ -360,7 +305,6 @@ function ClipViewer({ code, onHome }) {
       <div className="app">
         <main className="container">
           <Header />
-
           <section className="card centered">
             <div className="loader"></div>
             <p>Loading clip...</p>
@@ -375,12 +319,9 @@ function ClipViewer({ code, onHome }) {
       <div className="app">
         <main className="container">
           <Header />
-
           <section className="card centered">
             <div className="error-icon">!</div>
-
             <h1>{error}</h1>
-
             <button className="primary-button" onClick={onHome}>
               Create a new clip
             </button>
@@ -401,14 +342,10 @@ function ClipViewer({ code, onHome }) {
               <span className="small-label">SHARED CLIP</span>
               <h1>{code}</h1>
             </div>
-
             <span className="live-dot">LIVE</span>
           </div>
 
-          <div className="content-box">
-            {clip.content}
-          </div>
-
+          <div className="content-box">{clip.content}</div>
           <Countdown expiresAt={clip.expiresAt} />
 
           <button className="primary-button create-button" onClick={copy}>
@@ -464,12 +401,18 @@ function Header() {
     <header className="header">
       <button
         className="logo"
+        aria-label="ArchiClip home"
         onClick={() => {
           window.location.href = "/";
         }}
       >
-        <span className="logo-mark">C</span>
-        ClipSend
+        <img
+          className="logo-image"
+          src="/archiclip-logo.svg"
+          alt=""
+          aria-hidden="true"
+        />
+        <span>ArchiClip</span>
       </button>
 
       <span className="header-tag">Online Clipboard</span>
@@ -481,7 +424,6 @@ function Feature({ icon, title, text }) {
   return (
     <div className="feature">
       <div className="feature-icon">{icon}</div>
-
       <div>
         <h3>{title}</h3>
         <p>{text}</p>
@@ -493,7 +435,7 @@ function Feature({ icon, title, text }) {
 function Footer() {
   return (
     <footer>
-      <span>ClipSend</span>
+      <span>ArchiClip</span>
       <span>Temporary text sharing</span>
     </footer>
   );

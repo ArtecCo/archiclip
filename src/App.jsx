@@ -12,9 +12,16 @@ import AdminPage from "./AdminPage";
 const CODE_LENGTH = 6;
 
 const EXPIRATION_OPTIONS = [
-  { label: "10 minutes", value: 10 * 60 * 1000 },
-  { label: "1 hour", value: 60 * 60 * 1000 },
-  { label: "24 hours", value: 24 * 60 * 60 * 1000 }
+  { key: "1m", label: "1 minute", value: 60 * 1000 },
+  { key: "5m", label: "5 minutes", value: 5 * 60 * 1000 },
+  { key: "10m", label: "10 minutes", value: 10 * 60 * 1000 },
+  { key: "30m", label: "30 minutes", value: 30 * 60 * 1000 },
+  { key: "1h", label: "1 hour", value: 60 * 60 * 1000 },
+  { key: "6h", label: "6 hours", value: 6 * 60 * 60 * 1000 },
+  { key: "12h", label: "12 hours", value: 12 * 60 * 60 * 1000 },
+  { key: "24h", label: "24 hours", value: 24 * 60 * 60 * 1000 },
+  { key: "7d", label: "7 days", value: 7 * 24 * 60 * 60 * 1000 },
+  { key: "forever", label: "Forever", value: null }
 ];
 
 function generateCode() {
@@ -36,7 +43,7 @@ function App() {
     window.location.pathname === "/admin/";
 
   const [text, setText] = useState("");
-  const [expiration, setExpiration] = useState(EXPIRATION_OPTIONS[0].value);
+  const [expirationKey, setExpirationKey] = useState("10m");
   const [clip, setClip] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -72,6 +79,10 @@ function App() {
     setLoading(true);
 
     try {
+      const expiration =
+        EXPIRATION_OPTIONS.find((option) => option.key === expirationKey) ||
+        EXPIRATION_OPTIONS[2];
+
       let code = generateCode();
       let clipRef = doc(db, "clips", code);
       let existing = await getDoc(clipRef);
@@ -88,17 +99,26 @@ function App() {
         throw new Error("Could not generate a unique code. Try again.");
       }
 
-      const expiresAt = Date.now() + expiration;
+      const expiresAt =
+        expiration.value === null ? null : Date.now() + expiration.value;
 
       await setDoc(clipRef, {
         code,
         content: text,
         createdAt: serverTimestamp(),
         expiresAt,
+        expirationType: expiration.key,
+        expirationLabel: expiration.label,
         views: 0
       });
 
-      setClip({ code, content: text, expiresAt });
+      setClip({
+        code,
+        content: text,
+        expiresAt,
+        expirationType: expiration.key,
+        expirationLabel: expiration.label
+      });
       window.history.pushState({}, "", `/c/${code}`);
     } catch (err) {
       console.error("Create clip error:", err);
@@ -231,11 +251,11 @@ function App() {
 
           <select
             id="expiration"
-            value={expiration}
-            onChange={(event) => setExpiration(Number(event.target.value))}
+            value={expirationKey}
+            onChange={(event) => setExpirationKey(event.target.value)}
           >
             {EXPIRATION_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
+              <option key={option.key} value={option.key}>
                 {option.label}
               </option>
             ))}
@@ -255,7 +275,7 @@ function App() {
         <section className="features">
           <Feature icon="⚡" title="Instant" text="Create a shareable clip in seconds." />
           <Feature icon="🔗" title="Simple" text="One link works across your devices." />
-          <Feature icon="⌛" title="Temporary" text="Clips automatically expire." />
+          <Feature icon="⌛" title="Temporary" text="Clips can expire automatically." />
         </section>
 
         <Footer />
@@ -281,7 +301,7 @@ function ClipViewer({ code, onHome }) {
 
         const data = snapshot.data();
 
-        if (data.expiresAt && Date.now() > data.expiresAt) {
+        if (typeof data.expiresAt === "number" && Date.now() > data.expiresAt) {
           setError("This clip has expired.");
           return;
         }
@@ -372,16 +392,22 @@ function ClipViewer({ code, onHome }) {
 
 function Countdown({ expiresAt }) {
   const [remaining, setRemaining] = useState(
-    Math.max(0, expiresAt - Date.now())
+    typeof expiresAt === "number" ? Math.max(0, expiresAt - Date.now()) : null
   );
 
   useEffect(() => {
+    if (typeof expiresAt !== "number") return undefined;
+
     const timer = setInterval(() => {
       setRemaining(Math.max(0, expiresAt - Date.now()));
     }, 1000);
 
     return () => clearInterval(timer);
   }, [expiresAt]);
+
+  if (expiresAt === null || typeof expiresAt === "undefined") {
+    return <div className="countdown">Never expires</div>;
+  }
 
   if (remaining <= 0) {
     return <div className="countdown expired">Expired</div>;
@@ -391,12 +417,19 @@ function Countdown({ expiresAt }) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  const displayHours = hours % 24;
   const displayMinutes = minutes % 60;
 
-  const label =
-    hours > 0
-      ? `${hours}h ${String(displayMinutes).padStart(2, "0")}m`
-      : `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+  let label;
+
+  if (days > 0) {
+    label = `${days}d ${String(displayHours).padStart(2, "0")}h`;
+  } else if (hours > 0) {
+    label = `${hours}h ${String(displayMinutes).padStart(2, "0")}m`;
+  } else {
+    label = `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+  }
 
   return (
     <div className="countdown">

@@ -32,6 +32,17 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /clipCreationEvents/{code} {
+      allow create: if
+        request.resource.data.code == code
+        && request.resource.data.code is string
+        && request.resource.data.code.size() == 6
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.expirationType is string
+        && request.resource.data.expirationLabel is string;
+      allow read, update, delete: if isAdmin();
+    }
+
     match /admins/{userId} {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow write: if false;

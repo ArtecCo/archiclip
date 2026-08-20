@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import {
+  collection,
   doc,
   getDoc,
-  increment,
   serverTimestamp,
   setDoc,
   writeBatch
@@ -25,8 +25,6 @@ const EXPIRATION_OPTIONS = [
   { key: "7d", label: "7 days", value: 7 * 24 * 60 * 60 * 1000 },
   { key: "forever", label: "Forever", value: null }
 ];
-
-const adminMetricsRef = doc(db, "adminMetrics", "global");
 
 function generateCode() {
   const characters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -55,14 +53,8 @@ function App() {
 
   useEffect(() => {
     const path = window.location.pathname;
-
     if (path.startsWith("/c/")) {
-      const code = path
-        .replace("/c/", "")
-        .split("/")[0]
-        .trim()
-        .toUpperCase();
-
+      const code = path.replace("/c/", "").split("/")[0].trim().toUpperCase();
       if (code) setPathCode(code);
     }
   }, []);
@@ -107,6 +99,7 @@ function App() {
         expiration.value === null ? null : Date.now() + expiration.value;
 
       const batch = writeBatch(db);
+      const eventRef = doc(collection(db, "clipCreationEvents"));
 
       batch.set(clipRef, {
         code,
@@ -118,14 +111,13 @@ function App() {
         views: 0
       });
 
-      batch.set(
-        adminMetricsRef,
-        {
-          totalCreated: increment(1),
-          [`createdByExpiry.${expiration.key}`]: increment(1)
-        },
-        { merge: true }
-      );
+      // This event contains no clip content and remains after cleanup,
+      // allowing the admin dashboard to show lifetime creation statistics.
+      batch.set(eventRef, {
+        createdAt: serverTimestamp(),
+        expirationType: expiration.key,
+        expirationLabel: expiration.label
+      });
 
       await batch.commit();
 
@@ -163,7 +155,6 @@ function App() {
 
   async function shareClip() {
     const url = window.location.href;
-
     if (navigator.share) {
       try {
         await navigator.share({
@@ -180,17 +171,11 @@ function App() {
     }
   }
 
-  if (isAdminPath) {
-    return <AdminPage />;
-  }
-
-  if (pathCode && !clip) {
-    return <ClipViewer code={pathCode} onHome={reset} />;
-  }
+  if (isAdminPath) return <AdminPage />;
+  if (pathCode && !clip) return <ClipViewer code={pathCode} onHome={reset} />;
 
   if (clip) {
     const shareUrl = `${window.location.origin}/c/${clip.code}`;
-
     return (
       <div className="app">
         <main className="container">
@@ -198,26 +183,16 @@ function App() {
           <section className="card success-card">
             <div className="success-icon">✓</div>
             <h1>Your clip is ready</h1>
-            <p className="muted">
-              Open this link on another device or share it with someone.
-            </p>
+            <p className="muted">Open this link on another device or share it with someone.</p>
             <div className="code-box">{clip.code}</div>
-            <div className="qr-wrapper">
-              <QRCodeSVG value={shareUrl} size={190} level="M" />
-            </div>
+            <div className="qr-wrapper"><QRCodeSVG value={shareUrl} size={190} level="M" /></div>
             <div className="share-url">{shareUrl}</div>
             <Countdown expiresAt={clip.expiresAt} />
             <div className="button-row">
-              <button className="primary-button" onClick={() => copyText(shareUrl)}>
-                Copy Link
-              </button>
-              <button className="secondary-button" onClick={shareClip}>
-                Share
-              </button>
+              <button className="primary-button" onClick={() => copyText(shareUrl)}>Copy Link</button>
+              <button className="secondary-button" onClick={shareClip}>Share</button>
             </div>
-            <button className="text-button" onClick={reset}>
-              Create another clip
-            </button>
+            <button className="text-button" onClick={reset}>Create another clip</button>
           </section>
         </main>
       </div>
@@ -230,51 +205,20 @@ function App() {
         <Header />
         <section className="hero">
           <div className="badge">FAST • SIMPLE • TEMPORARY</div>
-          <h1>
-            Send text
-            <br />
-            <span>instantly.</span>
-          </h1>
-          <p>
-            Paste something here, get a link, and open it anywhere. No account required.
-          </p>
+          <h1>Send text<br /><span>instantly.</span></h1>
+          <p>Paste something here, get a link, and open it anywhere. No account required.</p>
         </section>
 
         <section className="card">
           <label htmlFor="clip-text">Your text</label>
-          <textarea
-            id="clip-text"
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            placeholder="Paste text, links, notes, commands..."
-            maxLength={10000}
-          />
-          <div className="textarea-footer">
-            <span>{text.length.toLocaleString()} / 10,000</span>
-          </div>
-
+          <textarea id="clip-text" value={text} onChange={(event) => setText(event.target.value)} placeholder="Paste text, links, notes, commands..." maxLength={10000} />
+          <div className="textarea-footer"><span>{text.length.toLocaleString()} / 10,000</span></div>
           <label htmlFor="expiration">Expires after</label>
-          <select
-            id="expiration"
-            value={expirationKey}
-            onChange={(event) => setExpirationKey(event.target.value)}
-          >
-            {EXPIRATION_OPTIONS.map((option) => (
-              <option key={option.key} value={option.key}>
-                {option.label}
-              </option>
-            ))}
+          <select id="expiration" value={expirationKey} onChange={(event) => setExpirationKey(event.target.value)}>
+            {EXPIRATION_OPTIONS.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
           </select>
-
           {error && <div className="error">{error}</div>}
-
-          <button
-            className="primary-button create-button"
-            onClick={createClip}
-            disabled={loading}
-          >
-            {loading ? "Creating..." : "Create Clip"}
-          </button>
+          <button className="primary-button create-button" onClick={createClip} disabled={loading}>{loading ? "Creating..." : "Create Clip"}</button>
         </section>
 
         <section className="features">
@@ -301,7 +245,6 @@ function ClipViewer({ code, onHome }) {
           setError("This clip does not exist.");
           return;
         }
-
         const data = snapshot.data();
         if (typeof data.expiresAt === "number" && Date.now() > data.expiresAt) {
           setError("This clip has expired.");
@@ -315,7 +258,6 @@ function ClipViewer({ code, onHome }) {
         setLoading(false);
       }
     }
-
     loadClip();
   }, [code]);
 
@@ -329,57 +271,19 @@ function ClipViewer({ code, onHome }) {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="app">
-        <main className="container">
-          <Header />
-          <section className="card centered">
-            <div className="loader"></div>
-            <p>Loading clip...</p>
-          </section>
-        </main>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="app">
-        <main className="container">
-          <Header />
-          <section className="card centered">
-            <div className="error-icon">!</div>
-            <h1>{error}</h1>
-            <button className="primary-button" onClick={onHome}>
-              Create a new clip
-            </button>
-          </section>
-        </main>
-      </div>
-    );
-  }
+  if (loading) return <div className="app"><main className="container"><Header /><section className="card centered"><div className="loader"></div><p>Loading clip...</p></section></main></div>;
+  if (error) return <div className="app"><main className="container"><Header /><section className="card centered"><div className="error-icon">!</div><h1>{error}</h1><button className="primary-button" onClick={onHome}>Create a new clip</button></section></main></div>;
 
   return (
     <div className="app">
       <main className="container">
         <Header />
         <section className="card">
-          <div className="clip-header">
-            <div>
-              <span className="small-label">SHARED CLIP</span>
-              <h1>{code}</h1>
-            </div>
-            <span className="live-dot">LIVE</span>
-          </div>
+          <div className="clip-header"><div><span className="small-label">SHARED CLIP</span><h1>{code}</h1></div><span className="live-dot">LIVE</span></div>
           <div className="content-box">{clip.content}</div>
           <Countdown expiresAt={clip.expiresAt} />
-          <button className="primary-button create-button" onClick={copy}>
-            Copy Text
-          </button>
-          <button className="text-button" onClick={onHome}>
-            Create your own clip
-          </button>
+          <button className="primary-button create-button" onClick={copy}>Copy Text</button>
+          <button className="text-button" onClick={onHome}>Create your own clip</button>
         </section>
       </main>
     </div>
@@ -387,24 +291,16 @@ function ClipViewer({ code, onHome }) {
 }
 
 function Countdown({ expiresAt }) {
-  const [remaining, setRemaining] = useState(
-    typeof expiresAt === "number" ? Math.max(0, expiresAt - Date.now()) : null
-  );
+  const [remaining, setRemaining] = useState(typeof expiresAt === "number" ? Math.max(0, expiresAt - Date.now()) : null);
 
   useEffect(() => {
     if (typeof expiresAt !== "number") return undefined;
-    const timer = setInterval(() => {
-      setRemaining(Math.max(0, expiresAt - Date.now()));
-    }, 1000);
+    const timer = setInterval(() => setRemaining(Math.max(0, expiresAt - Date.now())), 1000);
     return () => clearInterval(timer);
   }, [expiresAt]);
 
-  if (expiresAt === null || typeof expiresAt === "undefined") {
-    return <div className="countdown">Never expires</div>;
-  }
-  if (remaining <= 0) {
-    return <div className="countdown expired">Expired</div>;
-  }
+  if (expiresAt === null || typeof expiresAt === "undefined") return <div className="countdown">Never expires</div>;
+  if (remaining <= 0) return <div className="countdown expired">Expired</div>;
 
   const totalSeconds = Math.floor(remaining / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -413,60 +309,23 @@ function Countdown({ expiresAt }) {
   const days = Math.floor(hours / 24);
   const displayHours = hours % 24;
   const displayMinutes = minutes % 60;
-
   let label;
-  if (days > 0) {
-    label = `${days}d ${String(displayHours).padStart(2, "0")}h`;
-  } else if (hours > 0) {
-    label = `${hours}h ${String(displayMinutes).padStart(2, "0")}m`;
-  } else {
-    label = `${minutes}m ${String(seconds).padStart(2, "0")}s`;
-  }
-
-  return (
-    <div className="countdown">
-      Expires in <strong>{label}</strong>
-    </div>
-  );
+  if (days > 0) label = `${days}d ${String(displayHours).padStart(2, "0")}h`;
+  else if (hours > 0) label = `${hours}h ${String(displayMinutes).padStart(2, "0")}m`;
+  else label = `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+  return <div className="countdown">Expires in <strong>{label}</strong></div>;
 }
 
 function Header() {
-  return (
-    <header className="header">
-      <button
-        className="logo"
-        aria-label="ArchiClip home"
-        onClick={() => {
-          window.location.href = "/";
-        }}
-      >
-        <img className="logo-image" src="/archiclip-logo.svg" alt="" aria-hidden="true" />
-        <span>ArchiClip</span>
-      </button>
-      <span className="header-tag">Online Clipboard</span>
-    </header>
-  );
+  return <header className="header"><button className="logo" aria-label="ArchiClip home" onClick={() => { window.location.href = "/"; }}><img className="logo-image" src="/archiclip-logo.svg" alt="" aria-hidden="true" /><span>ArchiClip</span></button><span className="header-tag">Online Clipboard</span></header>;
 }
 
 function Feature({ icon, title, text }) {
-  return (
-    <div className="feature">
-      <div className="feature-icon">{icon}</div>
-      <div>
-        <h3>{title}</h3>
-        <p>{text}</p>
-      </div>
-    </div>
-  );
+  return <div className="feature"><div className="feature-icon">{icon}</div><div><h3>{title}</h3><p>{text}</p></div></div>;
 }
 
 function Footer() {
-  return (
-    <footer>
-      <span>ArchiClip</span>
-      <span>Temporary text sharing</span>
-    </footer>
-  );
+  return <footer><span>ArchiClip</span><span>Temporary text sharing</span></footer>;
 }
 
 export default App;

@@ -78,14 +78,18 @@ export default function AccessRequestsAdmin() {
     try {
       const u = findUser(item);
       await updateDoc(doc(db, "accessRequests", item.id), { status: nextStatus, reviewedAt: new Date() });
-      if (u) {
+
+      // A request decision is independent from the user's existing access.
+      // Denying a new request must NOT revoke or reduce an already-granted limit.
+      if (u && nextStatus === "Granted") {
         await setDoc(doc(db, "users", u.id), {
-          active: nextStatus === "Granted",
-          maxChars: nextStatus === "Granted" ? Number(item.adminLimit ?? u.maxChars ?? 1000) : 1000,
-          status: nextStatus,
+          active: true,
+          maxChars: Number(u.maxChars ?? item.adminLimit ?? 1000),
+          status: "Granted",
           email: u.email || item.email
         }, { merge: true });
       }
+
       setMessage(`${item.email}: ${nextStatus}.`);
       await load();
     } catch (e) {
@@ -96,7 +100,7 @@ export default function AccessRequestsAdmin() {
 
   async function editLimit(item) {
     const u = findUser(item);
-    const raw = window.prompt(`Character limit for ${item.email} (0–100,000)`, String(item.adminLimit ?? u?.maxChars ?? 1000));
+    const raw = window.prompt(`Character limit for ${item.email} (0–100,000)`, String(u?.maxChars ?? item.adminLimit ?? 1000));
     if (raw === null) return;
     const value = Number(raw);
     if (!Number.isInteger(value) || value < MIN_LIMIT || value > MAX_LIMIT) {
@@ -109,14 +113,12 @@ export default function AccessRequestsAdmin() {
           uid: u.id,
           email: u.email || item.email,
           maxChars: value,
-          active: true,
-          status: "Granted",
+          active: u.active !== false,
+          status: u.status || "Granted",
           limitUpdatedAt: new Date()
         }, { merge: true });
         await updateDoc(doc(db, "accessRequests", item.id), {
           adminLimit: value,
-          status: "Granted",
-          reviewedAt: new Date(),
           uid: u.id
         });
       } else {
@@ -202,16 +204,7 @@ export default function AccessRequestsAdmin() {
         .access-requests-section .status-select-label{display:flex;flex-direction:column;gap:6px;width:160px;color:#666;font-size:10px;font-weight:700}
         .access-requests-section .admin-status-select{width:160px;height:40px;min-height:40px;margin:0;padding:0 10px;border:1px solid #ddd;border-radius:9px;background:#fff;font-size:12px;box-sizing:border-box}
         .access-requests-section .admin-refresh{width:auto!important}
-        @media(max-width:700px){
-          .access-requests-section .account-row{grid-template-columns:1fr 90px 90px}
-          .access-requests-section .account-head{display:none}
-          .access-requests-section .account-row>*:nth-child(4){display:none}
-          .access-requests-section .manage-button{justify-self:end}
-          .access-requests-section .account-detail{grid-column:1/-1}
-          .access-requests-section .account-detail-grid{grid-template-columns:1fr}
-          .access-requests-section .detail-time{white-space:normal}
-          .access-requests-section .manage-actions{grid-template-columns:160px 120px;max-width:290px}
-        }
+        @media(max-width:700px){.access-requests-section .account-row{grid-template-columns:1fr 90px 90px}.access-requests-section .account-head{display:none}.access-requests-section .account-row>*:nth-child(4){display:none}.access-requests-section .manage-button{justify-self:end}.access-requests-section .account-detail{grid-column:1/-1}.access-requests-section .account-detail-grid{grid-template-columns:1fr}.access-requests-section .detail-time{white-space:normal}.access-requests-section .manage-actions{grid-template-columns:160px 120px;max-width:290px}}
       `}</style>
 
       <div className="admin-section-heading">
@@ -227,7 +220,7 @@ export default function AccessRequestsAdmin() {
           <div className="account-row account-head"><span>User</span><span>Status</span><span>Current limit</span><span>Requests</span><span>Actions</span></div>
           {items.map(item => {
             const u = findUser(item);
-            const current = Number(item.adminLimit ?? u?.maxChars ?? 1000);
+            const current = Number(u?.maxChars ?? item.adminLimit ?? 1000);
             const statusValue = item.status || "Pending";
             const isManaged = managedEmail === item.email;
             const isNew = statusValue === "Pending";

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">ArchiClip logo</title>
+  <desc id="desc">A modern paperclip forming the letter A.</desc>
+  <defs>
+    <linearGradient id="paper" x1="110" y1="80" x2="410" y2="450" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="0.55" stop-color="#F4F4F4"/>
+      <stop offset="1" stop-color="#9CA3AF"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="100" y1="100" x2="400" y2="430" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#D1D5DB"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#111111"/>
+  <path d="M180 394 311 126c13-27 47-31 66-8 11 14 12 33 4 49L260 397c-12 24-40 34-64 22-17-9-24-29-16-45Z" fill="url(#paper)"/>
+  <path d="M168 379 286 138c10-20 35-28 54-17 19 11 26 35 17 55L239 404" fill="none" stroke="#111111" stroke-width="27" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M166 380 286 137c10-20 35-28 54-17 19 11 26 35 17 55L239 404" fill="none" stroke="url(#edge)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M171 383c-18 11-42 5-53-13-9-15-8-33 0-49L238 98c18-36 63-51 99-33 37 18 52 63 34 100l-25 50" fill="none" stroke="url(#paper)" stroke-width="34" stroke-linecap="round"/>
+  <path d="M171 383c-18 11-42 5-53-13-9-15-8-33 0-49L238 98c18-36 63-51 99-33 37 18 52 63 34 100l-25 50" fill="none" stroke="#111111" stroke-width="11" stroke-linecap="round"/>
+</svg>

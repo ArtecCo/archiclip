@@ -24,6 +24,10 @@ service cloud.firestore {
       allow update: if isAdmin() || (request.auth != null && request.auth.uid == userId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['email','uid','maxChars','active','status','invitedAt','inviteId','createdAt']));
       allow delete: if isAdmin();
     }
+    match /accountLookup/{emailKey} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() || (request.auth != null && request.resource.data.email == request.auth.token.email && request.resource.data.exists == true);
+    }
     match /accessRequests/{requestId} {
       allow create: if request.resource.data.name is string && request.resource.data.email is string && request.resource.data.purpose is string && request.resource.data.status == 'Pending';
       allow read: if isAdmin() || (request.auth != null && resource.data.email == request.auth.token.email);

@@ -2,80 +2,42 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
     function isAdmin() {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.enabled == true;
+      return request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid)) && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.enabled == true;
     }
-
     function userLimit() {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.maxChars
-        : 1000;
+      return request.auth != null && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.active == true ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.maxChars : 1000;
     }
-
     match /clips/{clipId} {
       allow read: if true;
-
-      allow create: if
-        request.resource.data.content is string
-        && request.resource.data.content.size() > 0
-        && request.resource.data.content.size() <= userLimit()
-        && request.resource.data.code is string
-        && request.resource.data.code.size() == 6
-        && (
-          request.resource.data.expiresAt is number
-          || request.resource.data.expiresAt == null
-        );
-
-      allow update: if
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views'])
-        && request.resource.data.views == resource.data.views + 1;
-
+      allow create: if request.resource.data.content is string && request.resource.data.content.size() > 0 && request.resource.data.content.size() <= userLimit() && request.resource.data.code is string && request.resource.data.code.size() == 6 && (request.resource.data.expiresAt is number || request.resource.data.expiresAt == null);
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']) && request.resource.data.views == resource.data.views + 1;
       allow delete: if isAdmin();
     }
-
     match /clipCreationEvents/{code} {
-      allow create: if
-        request.resource.data.code == code
-        && request.resource.data.code is string
-        && request.resource.data.code.size() == 6
-        && request.resource.data.createdAt is timestamp
-        && request.resource.data.expirationType is string
-        && request.resource.data.expirationLabel is string;
+      allow create: if request.resource.data.code == code && request.resource.data.code is string && request.resource.data.code.size() == 6 && request.resource.data.createdAt is timestamp && request.resource.data.expirationType is string && request.resource.data.expirationLabel is string;
       allow read, update, delete: if isAdmin();
     }
-
     match /users/{userId} {
       allow read: if isAdmin() || (request.auth != null && request.auth.uid == userId);
-      allow create: if request.auth != null
-        && request.auth.uid == userId
-        && request.resource.data.uid == userId
-        && request.resource.data.maxChars == 1000;
-      allow update: if isAdmin();
+      allow create: if request.auth != null && request.auth.uid == userId && request.resource.data.uid == userId && request.resource.data.maxChars == 1000 && request.resource.data.active == true;
+      allow update: if isAdmin() || (request.auth != null && request.auth.uid == userId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['email','uid','maxChars','active','status','invitedAt','inviteId','createdAt']));
       allow delete: if isAdmin();
     }
-
     match /accessRequests/{requestId} {
-      allow create: if request.auth != null
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.name is string
-        && request.resource.data.email is string
-        && request.resource.data.purpose is string
-        && request.resource.data.status == 'Pending';
-      allow read: if isAdmin() || (request.auth != null && resource.data.uid == request.auth.uid);
+      allow create: if request.resource.data.name is string && request.resource.data.email is string && request.resource.data.purpose is string && request.resource.data.status == 'Pending';
+      allow read: if isAdmin() || (request.auth != null && resource.data.email == request.auth.token.email);
       allow update, delete: if isAdmin();
     }
-
+    match /accessInvites/{inviteId} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin() || (request.auth != null && resource.data.email == request.auth.token.email);
+    }
     match /admins/{userId} {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow write: if false;
     }
-
-    match /adminMetrics/{metricId} {
-      allow read, write: if isAdmin();
-    }
+    match /adminMetrics/{metricId} { allow read, write: if isAdmin(); }
   }
 }

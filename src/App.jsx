@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
 import {
-  addDoc,
-  collection,
   doc,
   getDoc,
-  serverTimestamp
+  serverTimestamp,
+  setDoc
 } from "firebase/firestore";
 import { QRCodeSVG } from "qrcode.react";
 import { db } from "./firebase";
@@ -53,12 +52,18 @@ function App() {
   const [pathCode, setPathCode] = useState(null);
 
   useEffect(() => {
-    const code = window.location.pathname.startsWith("/c/")
-      ? window.location.pathname.split("/c/")[1]
-      : null;
+    const path = window.location.pathname;
 
-    if (code) {
-      setPathCode(code.toUpperCase());
+    if (path.startsWith("/c/")) {
+      const code = path
+        .replace("/c/", "")
+        .split("/")[0]
+        .trim()
+        .toUpperCase();
+
+      if (code) {
+        setPathCode(code);
+      }
     }
   }, []);
 
@@ -79,14 +84,14 @@ function App() {
 
     try {
       let code = generateCode();
-
-      let existing = await getDoc(doc(db, "clips", code));
-
+      let clipRef = doc(db, "clips", code);
+      let existing = await getDoc(clipRef);
       let attempts = 0;
 
       while (existing.exists() && attempts < 10) {
         code = generateCode();
-        existing = await getDoc(doc(db, "clips", code));
+        clipRef = doc(db, "clips", code);
+        existing = await getDoc(clipRef);
         attempts++;
       }
 
@@ -96,7 +101,7 @@ function App() {
 
       const expiresAt = Date.now() + expiration;
 
-      await addDoc(collection(db, "clips"), {
+      await setDoc(clipRef, {
         code,
         content: text,
         createdAt: serverTimestamp(),
@@ -112,7 +117,7 @@ function App() {
 
       window.history.pushState({}, "", `/c/${code}`);
     } catch (err) {
-      console.error(err);
+      console.error("Create clip error:", err);
       setError("Something went wrong. Please try again.");
     } finally {
       setLoading(false);
@@ -123,9 +128,9 @@ function App() {
     setText("");
     setClip(null);
     setError("");
+    setPathCode(null);
 
     window.history.pushState({}, "", "/");
-    setPathCode(null);
   }
 
   async function copyText(value) {
@@ -187,6 +192,8 @@ function App() {
             <div className="share-url">
               {window.location.origin}/c/{clip.code}
             </div>
+
+            <Countdown expiresAt={clip.expiresAt} />
 
             <div className="button-row">
               <button
@@ -327,7 +334,7 @@ function ClipViewer({ code, onHome }) {
 
         setClip(data);
       } catch (err) {
-        console.error(err);
+        console.error("Load clip error:", err);
         setError("Could not load this clip.");
       } finally {
         setLoading(false);
@@ -402,6 +409,8 @@ function ClipViewer({ code, onHome }) {
             {clip.content}
           </div>
 
+          <Countdown expiresAt={clip.expiresAt} />
+
           <button className="primary-button create-button" onClick={copy}>
             Copy Text
           </button>
@@ -411,6 +420,41 @@ function ClipViewer({ code, onHome }) {
           </button>
         </section>
       </main>
+    </div>
+  );
+}
+
+function Countdown({ expiresAt }) {
+  const [remaining, setRemaining] = useState(
+    Math.max(0, expiresAt - Date.now())
+  );
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setRemaining(Math.max(0, expiresAt - Date.now()));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [expiresAt]);
+
+  if (remaining <= 0) {
+    return <div className="countdown expired">Expired</div>;
+  }
+
+  const totalSeconds = Math.floor(remaining / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const hours = Math.floor(minutes / 60);
+  const displayMinutes = minutes % 60;
+
+  const label =
+    hours > 0
+      ? `${hours}h ${String(displayMinutes).padStart(2, "0")}m`
+      : `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+
+  return (
+    <div className="countdown">
+      Expires in <strong>{label}</strong>
     </div>
   );
 }

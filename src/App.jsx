@@ -7,6 +7,7 @@ import {
 } from "firebase/firestore";
 import { QRCodeSVG } from "qrcode.react";
 import { db } from "./firebase";
+import AdminPage from "./AdminPage";
 
 const CODE_LENGTH = 6;
 
@@ -30,6 +31,10 @@ function generateCode() {
 }
 
 function App() {
+  const isAdminPath =
+    window.location.pathname === "/admin" ||
+    window.location.pathname === "/admin/";
+
   const [text, setText] = useState("");
   const [expiration, setExpiration] = useState(EXPIRATION_OPTIONS[0].value);
   const [clip, setClip] = useState(null);
@@ -136,6 +141,10 @@ function App() {
       await copyText(url);
       alert("Link copied!");
     }
+  }
+
+  if (isAdminPath) {
+    return <AdminPage />;
   }
 
   if (pathCode && !clip) {

@@ -6,7 +6,6 @@ import {
 } from "firebase/auth";
 import {
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -45,7 +44,7 @@ export default function AdminPage() {
         const adminSnapshot = await getDoc(
           doc(db, "admins", currentUser.uid)
         );
-        setIsAdmin(adminSnapshot.exists());
+        setIsAdmin(adminSnapshot.exists() && adminSnapshot.data().enabled === true);
       } catch (err) {
         console.error("Admin check failed:", err);
         setError("Could not verify admin access.");

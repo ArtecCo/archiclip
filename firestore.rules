@@ -20,7 +20,7 @@ service cloud.firestore {
     }
     match /users/{userId} {
       allow read: if isAdmin() || (request.auth != null && request.auth.uid == userId);
-      allow create: if request.auth != null && request.auth.uid == userId && request.resource.data.uid == userId && request.resource.data.maxChars == 1000 && request.resource.data.active == true;
+      allow create: if request.auth != null && request.auth.uid == userId && request.resource.data.uid == userId && ((request.resource.data.maxChars == 1000 && request.resource.data.active == true) || (request.resource.data.inviteId is string && exists(/databases/$(database)/documents/accessInvites/$(request.resource.data.inviteId)) && get(/databases/$(database)/documents/accessInvites/$(request.resource.data.inviteId)).data.used == false && get(/databases/$(database)/documents/accessInvites/$(request.resource.data.inviteId)).data.email == request.auth.token.email && get(/databases/$(database)/documents/accessInvites/$(request.resource.data.inviteId)).data.expiresAt > request.time.toMillis() && request.resource.data.maxChars == get(/databases/$(database)/documents/accessInvites/$(request.resource.data.inviteId)).data.maxChars && request.resource.data.active == true));
       allow update: if isAdmin() || (request.auth != null && request.auth.uid == userId && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['email','uid','maxChars','active','status','invitedAt','inviteId','createdAt']));
       allow delete: if isAdmin();
     }
@@ -32,7 +32,9 @@ service cloud.firestore {
     match /accessInvites/{inviteId} {
       allow get: if true;
       allow list: if isAdmin();
-      allow create, update, delete: if isAdmin() || (request.auth != null && resource.data.email == request.auth.token.email);
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (request.auth != null && resource.data.email == request.auth.token.email && request.resource.data.used == true && request.resource.data.usedBy == request.auth.uid);
+      allow delete: if isAdmin();
     }
     match /admins/{userId} {
       allow read: if request.auth != null && request.auth.uid == userId;
